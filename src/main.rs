@@ -2,14 +2,20 @@ mod data;
 mod db;
 mod error;
 mod handler;
+
 use mobc::{Connection, Pool};
 use mobc_postgres::{tokio_postgres, PgConnectionManager};
 use tokio_postgres::NoTls;
+use std::convert::Infallible;
 
 type DBCon = Connection<PgConnectionManager<NoTls>>;
 type DBPool = Pool<PgConnectionManager<NoTls>>;
 
-use warp::{http::StatusCode, Filter};
+use warp::{http::StatusCode, Filter, Rejection};
+
+fn with_db(db_pool: DBPool) -> impl Filter<Extract=(DBPool, ), Error=Infallible> + Clone {
+    warp::any().map(move || db_pool.clone())
+}
 
 #[tokio::main]
 async fn main() {
