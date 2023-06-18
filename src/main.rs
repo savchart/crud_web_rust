@@ -34,4 +34,15 @@ async fn main() {
     let db_pool = db::create_pool().expect("database pool can be created");
 
     db::init_db(&db_pool).await.expect("database can be initialized");
+    let todo = warp::path("todo");
+    let todo_routes = todo
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(with_db(db_pool.clone()))
+        .and_then(handler::create_todo_handler);
+
+    let routes = health_route
+        .or(todo_routes)
+        .with(warp::cors())
+        .recover(error::handle_rejection);
 }

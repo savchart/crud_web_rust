@@ -8,6 +8,7 @@ use mobc::Pool;
 
 type Result<T> = std::result::Result<T, error::Error>;
 const TABLE_NAME: &str = "todo";
+const SELECT_FIELDS: &str = "id, name, created_at, checked";
 
 const DB_POOL_MAX_OPEN: u64 = 32;
 const DB_POOL_MAX_IDLE: u64 = 8;
@@ -56,4 +57,48 @@ fn row_to_todo(row: &Row) ->Todo{
         created_at,
         checked,
     }
+}
+
+pub async fn fetch_todos(db_pool: &DBPool, search: Option<String>) -> Result<Vec<Todo>>{
+    let con = get_db_con(db_pool).await?;
+    let where_clause = match search {
+        Some(_) => "WHERE name LIKE $1",
+        None => "",
+    };
+    let query = format!(
+        "SELECT {} FROM {} {} ORDER BY created_at DESC",
+        SELECT_FIELDS, TABLE_NAME, where_clause
+    );
+    let q = match search {
+        Some(v) => con.query(query.as_str(), &[&v]).await,
+        None => con.query(query.as_str(), &[]).await,
+    };
+    let rows = q.map_err(DBQueryError)?;
+
+    Ok(rows.iter().map(|row| row_to_todo(row)).collect())
+}
+
+pub async fn update_todo(
+    db_pool: &DBPool,
+    id: i32,
+    body: TodoUpdateRequest,
+) -> Result<Todo> {
+    let con = get_db_con(db_pool).await?;
+    let query = format!(
+        "UPDATE {} SET name = $1, checked = $2 WHERE id = $3 RETURNING *",
+        TABLE_NAME
+    );
+    let row = con
+        .query_one(query.as_str(), &[&body.name, &body.checked, &id])
+        .await
+        .map_err(DBQueryError)?;
+    Ok(row_to_todo(&row))
+}
+
+pub async fn delete_todo(db_pool: &DBPool, id: i32) -> Result<(u64)> {
+    let con = get_db_con(db_pool).await?;
+    let query = format!("DELETE FROM {} WHERE id = $1", TABLE_NAME);
+    con.execute(query.as_str(), &[&id])
+        .await
+        .map_err(DBQueryError)
 }
