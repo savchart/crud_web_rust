@@ -1,19 +1,20 @@
 use crate::{data::*, error, error::Error::*, DBCon, DBPool};
+use chrono::prelude::*;
+use mobc::Pool;
 use mobc_postgres::{tokio_postgres, PgConnectionManager};
-use tokio_postgres::{Config, Error, NoTls};
 use std::fs;
 use std::str::FromStr;
 use std::time::Duration;
-use mobc::Pool;
+use tokio_postgres::{Config, Error, NoTls, Row};
 
 type Result<T> = std::result::Result<T, error::Error>;
-const TABLE_NAME: &str = "todo";
-const SELECT_FIELDS: &str = "id, name, created_at, checked";
 
 const DB_POOL_MAX_OPEN: u64 = 32;
 const DB_POOL_MAX_IDLE: u64 = 8;
 const DB_POOL_TIMEOUT: u64 = 10;
 const INIT_SQL: &str = "./db.sql";
+const TABLE: &str = "todo";
+const SELECT_FIELDS: &str = "id, name, created_at, checked";
 
 pub fn create_pool() -> std::result::Result<DBPool, mobc::Error<Error>> {
     let config = Config::from_str("postgres://postgres:postgres@127.0.0.1:7878/postgres")?;
@@ -32,7 +33,9 @@ pub async fn get_db_con(db_pool: &DBPool) -> Result<DBCon> {
 pub async fn init_db(db_pool: &DBPool) -> Result<()> {
     let init_file = fs::read_to_string(INIT_SQL)?;
     let con = get_db_con(db_pool).await?;
-    con.batch_execute(init_file.as_str()).await.map_err(DBInitError);
+    con.batch_execute(init_file.as_str())
+        .await
+        .map_err(DBInitError)?;
     Ok(())
 }
 
@@ -67,7 +70,7 @@ pub async fn fetch_todos(db_pool: &DBPool, search: Option<String>) -> Result<Vec
     };
     let query = format!(
         "SELECT {} FROM {} {} ORDER BY created_at DESC",
-        SELECT_FIELDS, TABLE_NAME, where_clause
+        SELECT_FIELDS, TABLE, where_clause
     );
     let q = match search {
         Some(v) => con.query(query.as_str(), &[&v]).await,
@@ -86,7 +89,7 @@ pub async fn update_todo(
     let con = get_db_con(db_pool).await?;
     let query = format!(
         "UPDATE {} SET name = $1, checked = $2 WHERE id = $3 RETURNING *",
-        TABLE_NAME
+        TABLE
     );
     let row = con
         .query_one(query.as_str(), &[&body.name, &body.checked, &id])
@@ -95,9 +98,9 @@ pub async fn update_todo(
     Ok(row_to_todo(&row))
 }
 
-pub async fn delete_todo(db_pool: &DBPool, id: i32) -> Result<(u64)> {
+pub async fn delete_todo(db_pool: &DBPool, id: i32) -> Result<u64> {
     let con = get_db_con(db_pool).await?;
-    let query = format!("DELETE FROM {} WHERE id = $1", TABLE_NAME);
+    let query = format!("DELETE FROM {} WHERE id = $1", TABLE);
     con.execute(query.as_str(), &[&id])
         .await
         .map_err(DBQueryError)
