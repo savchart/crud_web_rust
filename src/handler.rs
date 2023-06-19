@@ -7,3 +7,26 @@ pub async fn health_handler(db_pool: DBPool) -> Result<impl Reply, Rejection> {
 
     Ok(StatusCode::OK)
 }
+
+pub async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
+    let code;
+    let message;
+
+    if err.is_not_found() {
+        code = StatusCode::NOT_FOUND;
+        message = "NOT_FOUND";
+    } else if let Some(e) = err.find::<Error>() {
+        code = StatusCode::INTERNAL_SERVER_ERROR;
+        message = e.to_string();
+    } else if let Some(e) = err.find::<reject::MethodNotAllowed>() {
+        code = StatusCode::METHOD_NOT_ALLOWED;
+        message = e.to_string();
+    } else {
+        code = StatusCode::INTERNAL_SERVER_ERROR;
+        message = "UNHANDLED_REJECTION".to_string();
+    }
+
+    let json = warp::reply::json(&ErrorResponse { message });
+
+    Ok(warp::reply::with_status(json, code))
+}
